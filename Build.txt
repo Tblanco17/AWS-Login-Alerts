@@ -1,0 +1,133 @@
+#In SNS Create a new topic
+#In SNS Add Sub to that topic 
+#Cloud Trail, Create New S3 Bucket for Trail
+#Cloud Trail, Create New Log Group for CloudWatch
+#In Log Group Build Metric
+#In Log Group Build Alarm
+#In Alarm add Topic
+
+
+
+resource "aws_sns_topic" "user_updates" {
+  name = "user-updates-topic"
+}
+////////////////////////////////////////////
+
+
+
+resource "aws_sns_topic_subscription" "user_updates_sqs_target" {
+  topic_arn = "arn:aws:sns:us-west-2:432981146916:user-updates-topic"
+  protocol  = "sqs"
+  endpoint  = "arn:aws:sqs:us-west-2:432981146916:terraform-queue-too"
+}
+/////////////////////////////////////////////
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_cloudtrail" "foobar" {
+  name                          = "tf-trail-foobar"
+  s3_bucket_name                = "${aws_s3_bucket.foo.id}"
+  s3_key_prefix                 = "prefix"
+  include_global_service_events = false
+}
+
+resource "aws_s3_bucket" "foo" {
+  bucket        = "tf-test-trail"
+  force_destroy = true
+
+  policy = <<POLICY
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AWSCloudTrailAclCheck",
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "cloudtrail.amazonaws.com"
+            },
+            "Action": "s3:GetBucketAcl",
+            "Resource": "arn:aws:s3:::tf-test-trail"
+        },
+        {
+            "Sid": "AWSCloudTrailWrite",
+            "Effect": "Allow",
+            "Principal": {
+              "Service": "cloudtrail.amazonaws.com"
+            },
+            "Action": "s3:PutObject",
+            "Resource": "arn:aws:s3:::tf-test-trail/prefix/AWSLogs/${data.aws_caller_identity.current.account_id}/*",
+            "Condition": {
+                "StringEquals": {
+                    "s3:x-amz-acl": "bucket-owner-full-control"
+                }
+            }
+        }
+    ]
+}
+POLICY
+}
+/////////////////////////////////////////////
+
+resource "aws_cloudwatch_log_group" "yada" {
+  name = "Yada"
+
+  tags = {
+    Environment = "production"
+    Application = "serviceA"
+  }
+}
+
+/////////////////////////////////
+
+resource "aws_cloudwatch_log_metric_filter" "yada" {
+  name           = "MyAppAccessCount"
+  pattern        = ""
+  log_group_name = "${aws_cloudwatch_log_group.dada.name}"
+
+  metric_transformation {
+    name      = "EventCount"
+    namespace = "YourNamespace"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_log_group" "dada" {
+  name = "MyApp/access.log"
+}
+
+//////////////////////////////////////
+
+resource "aws_cloudwatch_metric_alarm" "foobar" {
+  alarm_name                = "terraform-test-foobar5"
+  comparison_operator       = "GreaterThanOrEqualToThreshold"
+  evaluation_periods        = "2"
+  metric_name               = "CPUUtilization"
+  namespace                 = "AWS/EC2"
+  period                    = "120"
+  statistic                 = "Average"
+  threshold                 = "80"
+  alarm_description         = "This metric monitors ec2 cpu utilization"
+  insufficient_data_actions = []
+}
+
+///////////////////////////////////////////////
+
+
+resource "aws_cloudwatch_metric_alarm" "xxx_nlb_healthyhosts" {
+  alarm_name          = "alarmname"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "HealthyHostCount"
+  namespace           = "AWS/NetworkELB"
+  period              = "60"
+  statistic           = "Average"
+  threshold           = var.logstash_servers_count
+  alarm_description   = "Number of XXXX nodes healthy in Target Group"
+  actions_enabled     = "true"
+  alarm_actions       = [aws_sns_topic.sns.arn]
+  ok_actions          = [aws_sns_topic.sns.arn]
+  dimensions = {
+    TargetGroup  = aws_lb_target_group.lb-tg.arn_suffix
+    LoadBalancer = aws_lb.lb.arn_suffix
+  }
+}
